@@ -1,0 +1,24 @@
+test_file: '/home/supermicro/zyx/code/CVPR2024_MAVL-main/data/xray14/test.csv'
+disease_book: '/home/supermicro/zyl/MAVL/Zero-shot_classification/observation explanation.json'
+concept_book: '/home/supermicro/zyl/MAVL/Pretrain/concept_gen/gpt4_mimic.json'
+
+dataset: 'chexray'
+root: '/home/supermicro/data/CXR14/images-224'
+model: mavl
+model_path: '/home/supermicro/zyl/MAVL/Pretrain/output/checkpoint_46.pth'
+
+image_res: 224
+test_batch_size: 512
+
+d_model: 256
+base_model: 'resnet50'
+decoder: cross
+num_queries: 75
+dropout: 0.1
+attribute_set_size: 2
+N: 4
+H: 4
+self_attention: True
+text_encoder: '/home/supermicro/zyl/MAVL/Bio_ClinicalBERT'
+pretrained: True
+mode: feature

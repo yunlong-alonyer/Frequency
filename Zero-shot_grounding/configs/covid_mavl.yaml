@@ -1,0 +1,29 @@
+test_file: '/home/supermicro/zyl/MAVL/data/covid_rural/test.csv'
+disease_book: '/home/supermicro/zyl/MAVL/Zero-shot_grounding/observation explanation.json'
+concept_book: '/home/supermicro/zyl/MAVL/Pretrain/concept_gen/gpt4_mimic.json'
+
+dataset: 'covid-r'
+root: '/home/supermicro/data/covid_rural'
+target: 'covid19'
+model_path: '/home/supermicro/zyl/MAVL/Pretrain/output/checkpoint_40.pth'
+
+
+image_res: 224
+test_batch_size: 512
+
+model: mavl
+d_model: 256
+base_model: 'resnet50'
+decoder: cross
+num_queries: 75
+dropout: 0.1
+attribute_set_size: 2
+N: 4
+H: 4
+text_encoder: '/home/supermicro/zyl/MAVL/Bio_ClinicalBERT'
+pretrained: True
+self_attention: True
+mode: avg
+
+
+
