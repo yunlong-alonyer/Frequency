@@ -1,11 +1,12 @@
-test_file: '/data/VLM/data/rsna/test.csv'
-disease_book: 'observation explanation.json'
-concept_book: '../Pretrain/concept_gen/gpt4_mimic.json'
+test_file: '/home/supermicro/zyl/MAVL/data/rsna/test.csv'
+disease_book: '/home/supermicro/zyl/MAVL/Zero-shot_classification/observation explanation.json'
+concept_book: '/home/supermicro/zyl/MAVL/Pretrain/concept_gen/gpt4_mimic.json'
 
 dataset: 'rsna'
-root: '/data/VLM/data/rsna'
+root: '/home/supermicro/data/RSNA-2018'
 model: mavl
-model_path: '../checkpoints/checkpoint_full_40.pth'
+
+model_path: '/home/supermicro/zyl/MAVL/Pretrain/output_mask_fulldata/checkpoint_67.pth'
 
 
 image_res: 224
@@ -19,7 +20,7 @@ dropout: 0.1
 attribute_set_size: 2
 N: 4
 H: 4
-text_encoder: 'emilyalsentzer/Bio_ClinicalBERT'
+text_encoder: '/home/supermicro/zyl/MAVL/Bio_ClinicalBERT'
 self_attention: True
 pretrained: True
 mode: feature

@@ -49,7 +49,7 @@ def get_tokenizer(tokenizer,target_text):
 def train(model, data_loader, optimizer, epoch, warmup_steps, device, scheduler, args, config, writer, accelerator, metric_logger):
     model.train()
     # 打印当前使用的设备索引
-    print(f"Current Device Index: {torch.cuda.current_device()}")
+    print(f"######### Current Device Index: {torch.cuda.current_device()} ############")
     metric_logger.update(lr=scheduler._get_lr(epoch)[0])
 
     header = 'Train Epoch: [{}]'.format(epoch)
@@ -299,8 +299,8 @@ if __name__ == '__main__':
     parser.add_argument('--config', default='/home/supermicro/zyl/MAVL/Pretrain/configs/MAVL_resnet.yaml')
     parser.add_argument('--root', default='/home/supermicro/data/mimic_cxr/images')
     parser.add_argument('--checkpoint', default='')
-    parser.add_argument('--output_dir', default='output')
-    parser.add_argument('--device', default='cuda:3')
+    parser.add_argument('--output_dir', default='output_0.1-0.3mask')
+    parser.add_argument('--device', default='cuda:1')
     # parser.add_argument('--gpu', type=str,default='1', help='gpu')
     parser.add_argument('--bs', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=12)

@@ -20,8 +20,8 @@ from .loss import pairwise_loss, SoftTargetCrossEntropy
 from pytorch_metric_learning import losses
 import timm
 # from timm.loss import SoftTargetCrossEntropy
-
-
+# 引入频域掩码模块
+from .freq_masking import FreqR2MAEMasking
 '''
 args.N
 args.d_model
@@ -181,6 +181,10 @@ class MAVL(nn.Module):
 
         # # Class classifier
         # self.cls_classifier = nn.Linear(self.d_model,args.num_classes)
+        self.use_freq_mask = config.get('use_freq_mask')  # 可在 yaml 配置文件中设开关
+        if self.use_freq_mask:
+            self.freq_masker = FreqR2MAEMasking()
+
 
         self.apply(self._init_weights)
 
@@ -260,6 +264,17 @@ class MAVL(nn.Module):
         # labels batch,51,75 binary_label batch,75 sample_index batch,index
         B = images.shape[0]
         device = images.device
+
+        # ==========================================
+        # [新增核心]: 施加动态频域掩码 (仅在训练时应用)
+        # ==========================================
+        current_mask_ratio = 0.0
+        if is_train and self.use_freq_mask:
+            images, current_mask_ratio = self.freq_masker(images)
+        # ==========================================
+
+
+
         ''' Visual Backbone '''
         x, x_global = self.image_encoder(images) #batch_size,patch_num,dim
 
@@ -364,7 +379,11 @@ class MAVL(nn.Module):
             else:
                 loss_cl = torch.tensor(0).to(device)
         loss = loss_ce + loss_cl + loss_global
-
+        #if is_train and self.use_freq_mask:
+            # 掩码率越高，说明特征越难提取，让模型更加关注全局的图像-文本特征对齐(loss_global)
+            # 掩码率越低，图像越完整，让模型有余力去做精细的位置定位学习(loss_cl)
+        #    adaptive_weight = current_mask_ratio
+        #    loss = loss_ce + (1.0 - adaptive_weight) * loss_cl + (1.0 + adaptive_weight) * loss_global
         if is_train:
             return loss,loss_ce,loss_cl, loss_global
         else:

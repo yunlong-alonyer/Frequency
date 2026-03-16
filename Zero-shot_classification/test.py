@@ -462,7 +462,7 @@ def test(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/MedKLIP_config.yaml')
-    parser.add_argument('--device', default='cuda:3')
+    parser.add_argument('--device', default='cuda:0')
     parser.add_argument('--gpu', type=str,default='0', help='gpu')
     parser.add_argument('--model_path', type=str, default='', help='model path')
     args = parser.parse_args()

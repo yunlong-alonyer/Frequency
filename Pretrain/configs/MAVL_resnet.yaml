@@ -1,10 +1,15 @@
-train_file: 'data_file/MAVL/rad_graph_metric_train.json'
-valid_file: 'data_file/MAVL/rad_graph_metric_validate.json'
-test_file: 'data_file/MAVL/rad_graph_metric_test.json'
+#train_file: 'data_file/MAVL/rad_graph_metric_train.json'
+#valid_file: 'data_file/MAVL/rad_graph_metric_validate.json'
+#test_file: 'data_file/MAVL/rad_graph_metric_test.json'
+train_file: 'data_file/MAVL/rad_graph_metric_train_mini.json'
+valid_file: 'data_file/MAVL/rad_graph_metric_validate_mini.json'
+test_file: 'data_file/MAVL/rad_graph_metric_test_mini.json'
+
+
 label_file: 'data_file/MAVL/landmark_observation_adj_mtx.npy'
 disease_book: 'data_file/observation explanation.json'
 concept_book: 'concept_gen/gpt4_mimic.json'
-
+use_freq_mask: 'True'
 model: 'mavl'
 image_res: 224
 patch_size: 16
@@ -37,4 +42,5 @@ exclude_class: False
 text_encoder: '/home/supermicro/zyl/MAVL/Bio_ClinicalBERT'
 shuffle_ratio: 0.5
 optimizer: {opt: adamW, lr: 1.0e-4, weight_decay: 0.02}
-schedular: {sched: cosine, lr: 1.0e-4, epochs: 60, min_lr: 1.0e-5, decay_rate: 1, warmup_lr: 1.0e-5, warmup_epochs: 5, cooldown_epochs: 0}
+#原始代码epoch为60
+schedular: {sched: cosine, lr: 1.0e-4, epochs: 120, min_lr: 1.0e-5, decay_rate: 1, warmup_lr: 1.0e-5, warmup_epochs: 5, cooldown_epochs: 0}
