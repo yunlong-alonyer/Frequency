@@ -56,25 +56,28 @@ class FreqR2MAEMasking(nn.Module):
         # 【核心 R^2 机制】：在这个 Mini-batch 动态采样一个随机掩码率
         current_mask_ratio = random.uniform(self.p_min, self.p_max)
 
-        orig_dtype = images.dtype
-        features_fp32 = images.to(torch.float32)
-
         # 1. FFT 转换到频域，并将低频(中心)移到矩阵正中央
-        fft_img = torch.fft.fft2(features_fp32)
+        fft_img = torch.fft.fft2(images)
         fft_shifted = torch.fft.fftshift(fft_img, dim=(-2, -1))
 
-        # 2. 生成掩码
+        # ==================== 核心：幅值与相位解耦 ====================
+        # 2. 提取真正的数学幅值与相位
+        amp = torch.abs(fft_shifted)     # 提取幅值（代表病灶显著度与对比度能量）
+        pha = torch.angle(fft_shifted)   # 提取相位（代表器官边缘与绝对空间坐标）
+
+        # 3. 生成对称掩码并【仅仅施加到幅值上】
         mask = self.generate_symmetric_mask(B, C, H, W, current_mask_ratio, device)
+        masked_amp = amp * mask          # 关键点：相位 pha 100% 绝对保留！
 
-        masked_fft_shifted = fft_shifted * mask
-
+        # 4. 极坐标重组：用残缺的幅值和完美的相位，重新缝合为复数矩阵
+        masked_fft_shifted = torch.polar(masked_amp, pha)
 
 
         # 5. 逆变换回空间域
         ifft_shifted = torch.fft.ifftshift(masked_fft_shifted, dim=(-2, -1))
-        masked_images = torch.fft.ifft2(ifft_shifted).real
+        masked_images = torch.fft.ifft2(ifft_shifted)
 
         # 因为掩码严格共轭对称，逆变换后虚部极小（机器精度误差），直接取实部
-        masked_images = masked_images.to(orig_dtype)
+        masked_images = masked_images.real
 
         return masked_images, current_mask_ratio

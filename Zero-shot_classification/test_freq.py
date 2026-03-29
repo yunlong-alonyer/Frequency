@@ -1,5 +1,6 @@
 from accelerate import Accelerator
 import torchshow as ts
+
 global accelerator
 import argparse
 import os
@@ -15,16 +16,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from sklearn.metrics import roc_auc_score,precision_recall_curve,accuracy_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, accuracy_score
 import csv
 
 from models.model_MedKLIP import MedKLIP
-from models.model_MAVL import MAVL
-from dataset.dataset import Chestxray14_Dataset, MURA_Dataset, Chexpert_Dataset, SIIM_ACR_Dataset, RSNA2018_Dataset, LERA_Dataset, Padchest_Dataset, \
+from models.model_freq import MAVL
+from dataset.dataset import Chestxray14_Dataset, MURA_Dataset, Chexpert_Dataset, SIIM_ACR_Dataset, RSNA2018_Dataset, \
+    LERA_Dataset, Padchest_Dataset, \
     CovidCXR2_Dataset, Covid19_Dataset
 from models.tokenization_bert import BertTokenizer
 from tabulate import tabulate
-
 
 from torchvision import transforms
 from PIL import Image, ImageDraw, ImageFont
@@ -47,7 +48,6 @@ def combine_predictions(pred_class, pred_global):
 def binary_entropy(predictions):
     # Ensure the input tensor has the correct shape
     assert predictions.size(-1) == 2, "Input tensor must have a shape (batch_size, N_class, 2)"
-
 
     # Calculate the log probabilities
     log_probs = torch.log(predictions)
@@ -80,7 +80,7 @@ def save_images_with_annotations(batch, predictions, classes, output_dir):
         img = to_pil(unnormalized_img).resize((512, 512))
 
         # Save the original image without annotations
-        #img.save(os.path.join(output_dir, f"image_{i}.png"))
+        # img.save(os.path.join(output_dir, f"image_{i}.png"))
 
         # Create a new image for annotations
         annotated_img = Image.new("RGB", (img.width, img.height + 120))  # Increase height for annotations
@@ -93,7 +93,7 @@ def save_images_with_annotations(batch, predictions, classes, output_dir):
         prediction_score = predictions[i]
         annotation_text = {
             j: f"{classes[j]}: {score.abs():.3f}" for j, score in enumerate(prediction_score) if j not in ignore_idx
-            }
+        }
 
         font = ImageFont.load_default()
         text_color = (255, 255, 255)  # White color
@@ -103,7 +103,7 @@ def save_images_with_annotations(batch, predictions, classes, output_dir):
         text_y = img.height + 10  # Place text below the image
 
         for j, text in annotation_text.items():
-            if prediction_score[j].abs() > 1/len(prediction_score):
+            if prediction_score[j].abs() > 1 / len(prediction_score):
                 text_color = (0, 255, 0)  # Green color for scores > 0.5
 
             text_size = draw.textsize(text, font)
@@ -140,11 +140,13 @@ def compute_AUCs(gt, pred, n_class):
     print("Eval AUC ", len(AUROCs), " / ", n_class)
     return AUROCs
 
-def get_tokenizer(tokenizer,target_text):
 
-    target_tokenizer = tokenizer(list(target_text), padding='max_length', truncation=True, max_length= 64, return_tensors="pt")
+def get_tokenizer(tokenizer, target_text):
+    target_tokenizer = tokenizer(list(target_text), padding='max_length', truncation=True, max_length=64,
+                                 return_tensors="pt")
 
     return target_tokenizer
+
 
 def log_to_csv(filename, data, firstrow=None):
     file_exists = os.path.isfile(filename)
@@ -162,47 +164,64 @@ def test(config):
     torch.set_default_tensor_type('torch.FloatTensor')
 
     ## Setup disease name
-    chexray14_cls = [ 'atelectasis', 'cardiomegaly', 'effusion', 'infiltrate', 'mass', 'nodule', 'pneumonia',
-                    'pneumothorax', 'consolidation', 'edema', 'emphysema', 'tail_abnorm_obs', 'thicken', 'hernia']  #Fibrosis seldom appears in MIMIC_CXR and is divided into the 'tail_abnorm_obs' entitiy.
+    chexray14_cls = ['atelectasis', 'cardiomegaly', 'effusion', 'infiltrate', 'mass', 'nodule', 'pneumonia',
+                     'pneumothorax', 'consolidation', 'edema', 'emphysema', 'tail_abnorm_obs', 'thicken',
+                     'hernia']  # Fibrosis seldom appears in MIMIC_CXR and is divided into the 'tail_abnorm_obs' entitiy.
     mura_cls = lera_cls = ['abnormality']
     if config['dataset'] == 'chexpert':
         chexpert_subset = config['chexpert_subset']
 
         if not chexpert_subset:
             chexpert_cls = ['normal', 'enlarge', 'cardiomegaly',
-                'opacity', 'lesion', 'edema', 'consolidation', 'pneumonia', 'atelectasis',
-                'pneumothorax', 'effusion', "abnormality", 'fracture', 'device']
+                            'opacity', 'lesion', 'edema', 'consolidation', 'pneumonia', 'atelectasis',
+                            'pneumothorax', 'effusion', "abnormality", 'fracture', 'device']
         else:
-            chexpert_cls = ['cardiomegaly','edema', 'consolidation', 'atelectasis','effusion']
+            chexpert_cls = ['cardiomegaly', 'edema', 'consolidation', 'atelectasis', 'effusion']
 
     siim_cls = ['pneumothorax']
     rsna_cls = ['pneumonia']
     covid_cls = ['covid19']
     original_class = [
-                'normal', 'clear', 'sharp', 'sharply', 'unremarkable', 'intact', 'stable', 'free',
-                'effusion', 'opacity', 'pneumothorax', 'edema', 'atelectasis', 'tube', 'consolidation', 'process', 'abnormality', 'enlarge', 'tip', 'low',
-                'pneumonia', 'line', 'congestion', 'catheter', 'cardiomegaly', 'fracture', 'air', 'tortuous', 'lead', 'disease', 'calcification', 'prominence',
-                'device', 'engorgement', 'picc', 'clip', 'elevation', 'expand', 'nodule', 'wire', 'fluid', 'degenerative', 'pacemaker', 'thicken', 'marking', 'scar',
-                'hyperinflate', 'blunt', 'loss', 'widen', 'collapse', 'density', 'emphysema', 'aerate', 'mass', 'crowd', 'infiltrate', 'obscure', 'deformity', 'hernia',
-                'drainage', 'distention', 'shift', 'stent', 'pressure', 'lesion', 'finding', 'borderline', 'hardware', 'dilation', 'chf', 'redistribution', 'aspiration',
-                'tail_abnorm_obs', 'excluded_obs'
-            ]
+        'normal', 'clear', 'sharp', 'sharply', 'unremarkable', 'intact', 'stable', 'free',
+        'effusion', 'opacity', 'pneumothorax', 'edema', 'atelectasis', 'tube', 'consolidation', 'process',
+        'abnormality', 'enlarge', 'tip', 'low',
+        'pneumonia', 'line', 'congestion', 'catheter', 'cardiomegaly', 'fracture', 'air', 'tortuous', 'lead', 'disease',
+        'calcification', 'prominence',
+        'device', 'engorgement', 'picc', 'clip', 'elevation', 'expand', 'nodule', 'wire', 'fluid', 'degenerative',
+        'pacemaker', 'thicken', 'marking', 'scar',
+        'hyperinflate', 'blunt', 'loss', 'widen', 'collapse', 'density', 'emphysema', 'aerate', 'mass', 'crowd',
+        'infiltrate', 'obscure', 'deformity', 'hernia',
+        'drainage', 'distention', 'shift', 'stent', 'pressure', 'lesion', 'finding', 'borderline', 'hardware',
+        'dilation', 'chf', 'redistribution', 'aspiration',
+        'tail_abnorm_obs', 'excluded_obs'
+    ]
 
-
-    padchest_seen_class = ['normal', 'pleural effusion', 'pacemaker', 'atelectasis', 'pneumonia', 'consolidation', 'cardiomegaly', 'emphysema',
+    padchest_seen_class = ['normal', 'pleural effusion', 'pacemaker', 'atelectasis', 'pneumonia', 'consolidation',
+                           'cardiomegaly', 'emphysema',
                            'nodule', 'edema', 'pneumothorax', 'fracture', 'mass', 'catheter']
 
-
-    padchest_rare = ['suture material', 'sternotomy', 'supra aortic elongation', 'metal', 'abnormal foreign body', 'central venous catheter via jugular vein', 'vertebral anterior compression', 'diaphragmatic eventration', #'consolidation',
-    'calcified densities', 'volume loss', 'single chamber device', 'vertebral compression', 'bullas', 'axial hyperostosis', 'aortic button enlargement', 'calcified granuloma', 'clavicle fracture', 'dual chamber device', 'mediastinic lipomatosis',
-                     'esophagic dilatation', 'azygoesophageal recess shift', 'breast mass', 'round atelectasis', 'surgery humeral', 'aortic aneurysm', 'nephrostomy tube', 'sternoclavicular junction hypertrophy', 'pulmonary artery hypertension', 'pleural mass', 'empyema', 'external foreign body', 'respiratory distress', 'total atelectasis', 'ventriculoperitoneal drain tube', 'right sided aortic arch', 'aortic endoprosthesis', 'cyst', 'pulmonary venous hypertension', 'double J stent']
+    padchest_rare = ['suture material', 'sternotomy', 'supra aortic elongation', 'metal', 'abnormal foreign body',
+                     'central venous catheter via jugular vein', 'vertebral anterior compression',
+                     'diaphragmatic eventration',  # 'consolidation',
+                     'calcified densities', 'volume loss', 'single chamber device', 'vertebral compression', 'bullas',
+                     'axial hyperostosis', 'aortic button enlargement', 'calcified granuloma', 'clavicle fracture',
+                     'dual chamber device', 'mediastinic lipomatosis',
+                     'esophagic dilatation', 'azygoesophageal recess shift', 'breast mass', 'round atelectasis',
+                     'surgery humeral', 'aortic aneurysm', 'nephrostomy tube', 'sternoclavicular junction hypertrophy',
+                     'pulmonary artery hypertension', 'pleural mass', 'empyema', 'external foreign body',
+                     'respiratory distress', 'total atelectasis', 'ventriculoperitoneal drain tube',
+                     'right sided aortic arch', 'aortic endoprosthesis', 'cyst', 'pulmonary venous hypertension',
+                     'double J stent']
 
     padchest_unseen_class = [
-        'hypoexpansion basal', 'non axial articular degenerative changes', 'central venous catheter via jugular vein', 'multiple nodules',
+        'hypoexpansion basal', 'non axial articular degenerative changes', 'central venous catheter via jugular vein',
+        'multiple nodules',
         'COPD signs', 'calcified densities', 'mediastinal shift', 'hiatal hernia',
         'volume loss', 'mediastinic lipomatosis', 'central venous catheter',
-        'ground glass pattern', 'surgery lung', 'miliary opacities', 'sclerotic bone lesion', 'pleural plaques', 'osteosynthesis material',
-        'calcified mediastinal adenopathy', 'apical pleural thickening', 'aortic elongation', 'major fissure thickening', 'callus rib fracture',
+        'ground glass pattern', 'surgery lung', 'miliary opacities', 'sclerotic bone lesion', 'pleural plaques',
+        'osteosynthesis material',
+        'calcified mediastinal adenopathy', 'apical pleural thickening', 'aortic elongation',
+        'major fissure thickening', 'callus rib fracture',
         'pulmonary venous hypertension', 'cervical rib', 'loculated pleural effusion',
         'flattened diaphragm'
     ]
@@ -210,17 +229,17 @@ def test(config):
     padchest_unseen_class = list(set(padchest_unseen_class + padchest_rare))
     if config['dataset'] == 'chexray':
         dataset_cls = chexray14_cls
-        test_dataset =  Chestxray14_Dataset(config['test_file'], is_train=False, root=config['root'])
+        test_dataset = Chestxray14_Dataset(config['test_file'], is_train=False, root=config['root'])
     elif config['dataset'] == 'mura':
         dataset_cls = mura_cls
-        test_dataset =  MURA_Dataset(config['test_file'], is_train=False, root=config['root'])
+        test_dataset = MURA_Dataset(config['test_file'], is_train=False, root=config['root'])
     elif config['dataset'] == 'lera':
         dataset_cls = lera_cls
-        test_dataset =  LERA_Dataset(config['test_file'], is_train=False, root=config['root'])
+        test_dataset = LERA_Dataset(config['test_file'], is_train=False, root=config['root'])
     elif config['dataset'] == 'chexpert':
         dataset_cls = chexpert_cls
         test_dataset = Chexpert_Dataset(config['test_file'], is_train=False, root=config['root'],
-                                         subset=chexpert_subset)
+                                        subset=chexpert_subset)
     elif config['dataset'] == 'siim':
         dataset_cls = siim_cls
         test_dataset = SIIM_ACR_Dataset(config['test_file'], is_train=False, root=config['root'])
@@ -256,25 +275,24 @@ def test(config):
             mapping.append(original_class.index(disease))
         else:
             mapping.append(-1)
-    MIMIC_mapping = [ _ for i,_ in enumerate(mapping) if _ != -1] # valid MIMIC class index
-    dataset_mapping = [ i for i,_ in enumerate(mapping) if _ != -1] # valid (exist in MIMIC) chexray class index
-    target_class = [dataset_cls[i] for i in dataset_mapping ] # Filter out non-existing class
+    MIMIC_mapping = [_ for i, _ in enumerate(mapping) if _ != -1]  # valid MIMIC class index
+    dataset_mapping = [i for i, _ in enumerate(mapping) if _ != -1]  # valid (exist in MIMIC) chexray class index
+    target_class = [dataset_cls[i] for i in dataset_mapping]  # Filter out non-existing class
     print(MIMIC_mapping)
 
     test_dataloader = DataLoader(
-            test_dataset,
-            batch_size=config['test_batch_size'],
-            num_workers=4,
-            pin_memory=True,
-            sampler=None,
-            shuffle=True,
-            collate_fn=None,
-            drop_last=False,
-        )
-
+        test_dataset,
+        batch_size=config['test_batch_size'],
+        num_workers=4,
+        pin_memory=True,
+        sampler=None,
+        shuffle=True,
+        collate_fn=None,
+        drop_last=False,
+    )
 
     print("Creating book")
-    json_book = json.load(open(config['disease_book'],'r'))
+    json_book = json.load(open(config['disease_book'], 'r'))
     disease_book = [json_book[i] for i in original_class]
     ana_book = ['It is located at ' + i for i in
                 ['trachea', 'left_hilar', 'right_hilar', 'hilar_unspec', 'left_pleural',
@@ -293,7 +311,7 @@ def test(config):
     print("Number of anatomies:", len(ana_book))
 
     tokenizer = BertTokenizer.from_pretrained(config['text_encoder'])
-    disease_book_tokenizer = get_tokenizer(tokenizer,disease_book).to(device)
+    disease_book_tokenizer = get_tokenizer(tokenizer, disease_book).to(device)
     ana_book_tokenizer = get_tokenizer(tokenizer, ana_book).to(device)
     select_concepts = config.get('select_concepts', None)
     if 'concept_book' in config:
@@ -308,7 +326,6 @@ def test(config):
             for disease, concepts_ in concepts.items():
                 concepts_book += [concepts_[i] for i in select_concepts]
         concepts_book_tokenizer = get_tokenizer(tokenizer, concepts_book).to(device)
-
 
     print("Creating model")
     if config['model'] == 'medklip':
@@ -345,30 +362,34 @@ def test(config):
         else:
             label = sample['label'].float().to(device)
         gt = torch.cat((gt, label), 0)
-        input_image = image.to(device,non_blocking=True)
+        input_image = image.to(device, non_blocking=True)
         with torch.no_grad():
             if config['model'] == 'mavl':
-                pred_class, location, concept_features, pred_global, ensemble = model(input_image) #batch_size,num_class,dim
+                pred_class, location, concept_features, pred_global, ensemble = model(
+                    input_image)  # batch_size,num_class,dim
                 preds_global = []
                 if not config.get('same_feature', False):
-                    for normal_idx in [0,1]:
-                        normal = pred_global[:, :, [normal_idx]].repeat(1,1, len(original_class))
-                        pred_global_ = torch.stack([normal, pred_global], dim=-1) # B, N_concepts, N_disease
+                    for normal_idx in [0, 1]:
+                        normal = pred_global[:, :, [normal_idx]].repeat(1, 1, len(original_class))
+                        pred_global_ = torch.stack([normal, pred_global], dim=-1)  # B, N_concepts, N_disease
                         pred_global_ = F.softmax(pred_global_, dim=-1)
                         preds_global.append(pred_global_)
                     pred_global = torch.stack(preds_global, dim=0).mean(dim=0)
                 # pred_global = pred_global[:, :, MIMIC_mapping, 1]
             else:
-                pred_class, location, concept_features = model(input_image) #batch_size,num_class,dim
+                pred_class, location, concept_features = model(input_image)  # batch_size,num_class,dim
                 pred_global = None
-
+#------------------------
             if config['model'] != 'mavl' or mode == 'feature':
-                pred_class = F.softmax(pred_class.reshape(-1,2)).reshape(-1,len(original_class),2)
-                pred_class = pred_class[:,MIMIC_mapping,1]
+                pred_class = F.softmax(pred_class.reshape(-1, 2)).reshape(-1, len(original_class), 2)
+                pred_class = pred_class[:, MIMIC_mapping, 1]
             elif mode == 'text':
                 pred_class = pred_global[:, :, MIMIC_mapping, 1].mean(dim=1)
             pred = torch.cat((pred, pred_class), 0)
-    # location is
+
+
+#---------------------------
+            # location is
     AUROCs = compute_AUCs(gt, pred, len(target_class))
     AUROC_avg = np.array(AUROCs).mean()
 
@@ -376,8 +397,6 @@ def test(config):
     accs = []
     recalls = []
     precisions = []
-
-
 
     for i in range(len(target_class)):
         gt_np = gt[:, i].cpu().numpy()
@@ -387,7 +406,7 @@ def test(config):
         precision, recall, thresholds = precision_recall_curve(gt_np, pred_np)
         numerator = 2 * recall * precision
         denom = recall + precision
-        f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom!=0))
+        f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
         max_f1 = np.max(f1_scores)
         max_f1_thresh = thresholds[np.argmax(f1_scores)]
         rec, pre = recall[np.argmax(f1_scores)], precision[np.argmax(f1_scores)]
@@ -395,7 +414,7 @@ def test(config):
         recalls.append(rec)
         precisions.append(pre)
         max_f1s.append(max_f1)
-        accs.append(accuracy_score(gt_np, pred_np>max_f1_thresh))
+        accs.append(accuracy_score(gt_np, pred_np > max_f1_thresh))
 
     f1_avg = np.nanmean(np.array(max_f1s))
     acc_avg = np.array(accs).mean()
@@ -417,8 +436,8 @@ def test(config):
 
     # Create a list of lists to represent the normal table
     table_data = [[class_name, accuracy, max_f1, auc_roc, precision, recall]
-                for class_name, accuracy, max_f1, auc_roc, precision, recall in zip(
-                    target_class, accs, max_f1s, AUROCs, precisions, recalls)]
+                  for class_name, accuracy, max_f1, auc_roc, precision, recall in zip(
+            target_class, accs, max_f1s, AUROCs, precisions, recalls)]
 
     # Add a row for average values
     average_row = ["Average", acc_avg, f1_avg, AUROC_avg, precision_avg, recall_avg]
@@ -448,9 +467,8 @@ def test(config):
         if config['dataset'] == 'padchest':
             dataset_name = f"{dataset_name}_{config['class']}"
         data = [dataset_name, acc_avg, f1_avg, AUROC_avg, precision_avg, recall_avg]
-        header = ['Dataset',  "Accuracy", "Max F1", "AUC ROC", "Precision", "Recall"]
+        header = ['Dataset', "Accuracy", "Max F1", "AUC ROC", "Precision", "Recall"]
         log_to_csv(csv_filename, data, header)
-
 
     # print('The average f1 is {F1_avg:.4f}'.format(F1_avg=f1_avg))
     # print('The average ACC is {ACC_avg:.4f}'.format(ACC_avg=acc_avg))
@@ -463,7 +481,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/MedKLIP_config.yaml')
     parser.add_argument('--device', default='cuda:0')
-    parser.add_argument('--gpu', type=str,default='0', help='gpu')
+    parser.add_argument('--gpu', type=str, default='0', help='gpu')
     parser.add_argument('--model_path', type=str, default='', help='model path')
     args = parser.parse_args()
     print('=======device:{}========'.format(torch.cuda.current_device()))

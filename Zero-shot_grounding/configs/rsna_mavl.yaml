@@ -7,7 +7,7 @@ root: '/home/supermicro/data/rsna/rsna/'
 target: pneumonia
 model: mavl
 
-model_path: '/home/supermicro/zyl/MAVL/Pretrain/output/checkpoint_91.pth'
+model_path: '/home/supermicro/zyl/MAVL/Pretrain/output_fulldata_dynamic_mask/checkpoint_52.pth'
 # model_path: '../../medslip/checkpoints/cl_global_1e-1_true/checkpoint_43.pth'
 
 

@@ -20,22 +20,12 @@ from transformers import AutoModel
 from .loss import pairwise_loss, SoftTargetCrossEntropy
 from pytorch_metric_learning import losses
 import timm
-# from timm.loss import SoftTargetCrossEntropy
-# 引入频域掩码模块
-from .freq_masking import FreqR2MAEMasking
 
-'''
-args.N
-args.d_model
-args.res_base_model
-args.H 
-args.num_queries
-args.dropout
-args.attribute_set_size
-'''
+# 🌟🌟🌟 干净利落的导入方式 🌟🌟🌟
+from .dynamic_freq import TextDrivenGlobalFreqFilter
 
 
-##对比头
+## 对比头
 class AttentionPool2d(nn.Module):
     def __init__(self, spacial_dim: int, embed_dim: int, num_heads: int, output_dim: int = None):
         super().__init__()
@@ -107,31 +97,29 @@ class MAVL(nn.Module):
 
         self.d_model = config['d_model']
         device = ana_book['input_ids'].device
-        # ''' book embedding'''
+
         with torch.no_grad():
             bert_model = self._get_bert_basemodel(config['text_encoder'], freeze_layers=None).to(device)
-            ## Location / anatomical terms/ landmark
             self.ana_book = bert_model(input_ids=ana_book['input_ids'],
-                                       attention_mask=ana_book['attention_mask'])  # (**encoded_inputs)
-            self.ana_book = self.ana_book.last_hidden_state[:, 0, :]  # Position codebooks - 51 x 768
+                                       attention_mask=ana_book['attention_mask'])
+            self.ana_book = self.ana_book.last_hidden_state[:, 0, :]
+
             self.disease_book = bert_model(input_ids=disease_book['input_ids'],
-                                           attention_mask=disease_book['attention_mask'])  # (**encoded_inputs)
-            self.disease_book = self.disease_book.last_hidden_state[:, 0,
-                                :]  # Detailed description of dieases codebook - 75 x 768
+                                           attention_mask=disease_book['attention_mask'])
+            # 保存 disease_book 以供 Master 滤镜使用
+            self.disease_book = self.disease_book.last_hidden_state[:, 0, :]
+
             self.concept_book = bert_model(input_ids=concept_book['input_ids'],
-                                           attention_mask=concept_book['attention_mask'])  # (**encoded_inputs)
-            self.concept_book = self.concept_book.last_hidden_state[:, 0,
-                                :]  # Detailed description of dieases codebook
+                                           attention_mask=concept_book['attention_mask'])
+            self.concept_book = self.concept_book.last_hidden_state[:, 0, :]
             self.concept_book = self.concept_book[:len(self.disease_name) * self.n_concepts]
-            self.concept_book = self.concept_book.view(len(self.disease_name), self.n_concepts,
-                                                       768)  # 75 x 7 x 768 Support 7 concepts for now
+            self.concept_book = self.concept_book.view(len(self.disease_name), self.n_concepts, 768)
             self.concept_book = torch.cat((self.disease_book.unsqueeze(1), self.concept_book), dim=1).view(-1, 768)
             self.n_concepts += 1
+
         self.global_concept_idx = config.get('global_concept_idx', list(range(self.n_concepts)))
         self.disease_embedding_layer = nn.Linear(768, self.d_model)
-        # self.cl_fc = nn.Linear(256,768) # Location embedding
 
-        ## Index of important diseases
         self.keep_class_dim = [self.disease_name.index(i) for i in self.disease_name if i in self.keep_disease]
         self.model_name = config["base_model"]
         print("Image feature extractor:", config["base_model"])
@@ -143,8 +131,7 @@ class MAVL(nn.Module):
             self.global_l = nn.Linear(768, out_features=self.d_model)
         else:
             self.global_l = None
-        # self.res_l1 = nn.Linear(num_ftrs, num_ftrs)
-        # self.res_l2 = nn.Linear(num_ftrs, self.d_model)
+
         self.res_l1 = nn.Sequential(
             nn.Conv2d(num_ftrs, out_channels=num_ftrs, kernel_size=1),
             nn.PReLU()
@@ -152,11 +139,7 @@ class MAVL(nn.Module):
         self.res_l2 = nn.Conv2d(num_ftrs, out_channels=self.d_model, kernel_size=1)
         self.location_emb = nn.Conv1d(in_channels=self.d_model, out_channels=768, kernel_size=self.n_concepts,
                                       stride=self.n_concepts)
-        # self.location_emb = nn.ModuleList([nn.Linear(in_channels=256*self.n_concepts, out_channels=768) for _ in len(self.disease_name)])
 
-        ###################################
-        ''' Query Decoder'''
-        ###################################
         self.decoder_name = config['decoder']
         if config['decoder'] == 'cross':
             self.H = config['H']
@@ -167,8 +150,6 @@ class MAVL(nn.Module):
             self.decoder = TransformerDecoder(decoder_layer, config['N'], decoder_norm,
                                               return_intermediate=False)
 
-        # Learnable Queries
-        # self.query_embed = nn.Embedding(config['num_queries'] ,self.d_model)
         self.dropout_feas = nn.Dropout2d(config['dropout'])
         self.bottneck = config.get('bottneck', False)
         d_model = self.d_model
@@ -176,7 +157,6 @@ class MAVL(nn.Module):
             self.bottleneck = nn.Conv1d(self.d_model, self.d_model // 4, kernel_size=1)
             d_model = self.d_model // 4
 
-        # Attribute classifier
         self.classifier = nn.Linear(d_model * self.n_concepts, config['attribute_set_size'])
         self.cl_concept = config.get('cl_concept', 0)
         self.cl_global = config.get('cl_global', 0)
@@ -184,22 +164,12 @@ class MAVL(nn.Module):
         self.temp = nn.Parameter(torch.ones(len(self.global_concept_idx)) * np.log(1 / 0.07))
         self.sce = SoftTargetCrossEntropy()
 
-        # if self.reg_map:
-        #     self.regularizer_clf = nn.ModuleList([nn.Linear(self.n_concepts, config['attribute_set_size'])
-        #                                     for _ in range(len(self.disease_name))])
-        #     self.regularizer_clf = nn.Linear(self.n_concepts, config['attribute_set_size'])
-
-        # # Class classifier
-        # self.cls_classifier = nn.Linear(self.d_model,args.num_classes)
-        self.use_freq_mask = config.get('use_freq_mask')  # 可在 yaml 配置文件中设开关
-        if self.use_freq_mask:
-            self.freq_masker = FreqR2MAEMasking()
+        # 🌟🌟 优雅地初始化外部引入的全局频域门控 🌟🌟
+        self.text_freq_filter = TextDrivenGlobalFreqFilter(text_dim=768, num_rings=32)
 
         self.apply(self._init_weights)
 
     def _get_basemodel(self, model_name, pretrained=False, layers=['blocks.9']):
-        # try:
-        ''' visual backbone'''
         if "resnet" in model_name:
             net_dict = {
                 "resnet18": models.resnet18(pretrained=pretrained),
@@ -222,13 +192,10 @@ class MAVL(nn.Module):
             backbone = create_feature_extractor(model, return_nodes={'encoder.ln': 'layer'})
             num_ftrs = model.hidden_dim
         return backbone, num_ftrs
-        # except:
-        #     raise ("Invalid model name. Check the config file and pass one of: resnet18, resnet50, ViT-B/16, ViT-L/16, timm-model")
 
     def _get_bert_basemodel(self, bert_model_name, freeze_layers):
         try:
-            model = AutoModel.from_pretrained(bert_model_name)  # , return_dict=True)
-            print("text feature extractor:", bert_model_name)
+            model = AutoModel.from_pretrained(bert_model_name)
         except:
             raise ("Invalid model name. Check the config file and pass a BERT model from transformers lybrary")
 
@@ -239,15 +206,8 @@ class MAVL(nn.Module):
         return model
 
     def image_encoder(self, xis):
-        # patch features
-        """
-        16 torch.Size([16, 1024, 14, 14])
-        torch.Size([16, 196, 1024])
-        torch.Size([3136, 1024])
-        torch.Size([16, 196, 256])
-        """
         batch_size, _, H, W = xis.shape
-        res_fea = self.backbone(xis)  # batch_size,feature_size,patch_num,patch_num
+        res_fea = self.backbone(xis)
         if 'vit' in self.model_name.lower() or 'timm' in self.model_name.lower():
             global_fea = res_fea['layer'][:, 0, :]
             if self.global_l is not None:
@@ -257,103 +217,72 @@ class MAVL(nn.Module):
             res_fea = res_fea.permute(0, 2, 1).contiguous().view(batch_size, -1, h, h)
         else:
             global_fea = self.pool(res_fea)
-        # global_fea = self.global_l(global_fea) EXPLORE
-        # batch_size,num,feature_size
-        # h = h.squeeze()
+
         x = self.res_l1(res_fea)
         x = self.res_l2(x)
         return x, global_fea
 
     def forward(self, images, labels, smaple_index=None, is_train=True, no_cl=False, exclude_class=False):
-        '''
-        images: visual images - [B, 1, H, W]
-        labels: presence label of n_disease=75 diseases in the report [-1, 0, 1] - [B, 75]
-        sample_index: queue of location idxs for contrastive learning: [B, 8]
-        '''
-        # labels batch,51,75 binary_label batch,75 sample_index batch,index
         B = images.shape[0]
         device = images.device
 
-        # ==========================================
-        # [新增核心]: 施加动态频域掩码 (仅在训练时应用)
-        # ==========================================
-        current_mask_ratio = 0.0
-        if is_train and self.use_freq_mask:
-            images, current_mask_ratio = self.freq_masker(images)
-        # ==========================================
+        # =========================================================================
+        # 调用外部模块的 Master 全局频域门控
+        # =========================================================================
+        images = self.text_freq_filter(images, self.disease_book)
 
         ''' Visual Backbone '''
-        x, x_global = self.image_encoder(images)  # batch_size,patch_num,dim
+        x, x_global = self.image_encoder(images)
 
-        ## Concept learning
         n_queries = len(self.disease_name)
-        # self.concept_book = self.concept_learning(self.disease_book)
-        # self.concept_book = self.concept_book.view(n_queries*self.n_concepts, -1) # N_disease*n_concepts, 768
         query_embed_ = self.disease_embedding_layer(self.concept_book)
 
-        ## Extract concept embeddings of n_disease*n_concepts from the visual features
         if self.decoder_name == 'cross':
             b, d, h, w = x.shape
             x = x.permute((0, 2, 3, 1))
             x = x.contiguous().view(b, h * w, -1).permute(1, 0, 2)
-            query_embed = query_embed_.unsqueeze(1).repeat(1, B, 1)  # 75*9 x B x dim
+            query_embed = query_embed_.unsqueeze(1).repeat(1, B, 1)
 
         features, att = self.decoder(query_embed, x)
-        # feature shape is B x (n_disease*n_concepts) x dim
-        # att shape is B x (n_disease*n_concepts) x N_pixels
+
         out = self.dropout_feas(features)
         if self.decoder_name == 'cross':
             out = out.permute(1, 2, 0)
         else:
             out = out.permute(0, 2, 1)
-        ## B x dim x (n_disease*n_concepts)
 
-        ## Loss functions
-        ### Regularizer
+        l_emb = self.location_emb(out).permute(0, 2, 1)
 
-        # out will be B x n_disease*n_concepts x dim
-        # Extract location embedding from a group of n_concept features
-        l_emb = self.location_emb(out).permute(0, 2, 1)  # B x n_disease x 768
-
-        ## Output 1: Contrastive learning of location embeddings
         if is_train == True and no_cl == False:
-            # Get actual (positive) and 7 other neg location embeddings (Q=8)
-            anatomy_query = self.ana_book[smaple_index,
-                            :]  # n_disease x Q x 768, where q[i] consists of Q location embedding (pos/neg) for disease i in this image
+            anatomy_query = self.ana_book[smaple_index, :]
 
-            n_disease = l_emb.shape[1]  # N_disease
-            ll = l_emb.reshape(B * n_disease, -1)  # B*n_disease x 768
-            # ll = self.cl_fc(ll) # N, dim; disease feature -> location embedding; where N is total images * possible n_disease
-            ll = ll.unsqueeze(
-                dim=-1)  # (N, 768, 1) - predicted location embeddings for every instance (diseases and in all images)
-            # ll = ll.reshape(B,Q,-1)
-            anatomy_query = anatomy_query.reshape(B * n_disease, 8, 768)  # N x Q=8 x dim
-            ll = torch.bmm(anatomy_query, ll).squeeze()  # N x Q=8
-            ## Similarity between predicted location embeddings and the actual embeddings, the first index
+            n_disease = l_emb.shape[1]
+            ll = l_emb.reshape(B * n_disease, -1)
+            ll = ll.unsqueeze(dim=-1)
+            anatomy_query = anatomy_query.reshape(B * n_disease, 8, 768)
+            ll = torch.bmm(anatomy_query, ll).squeeze()
             cl_labels = torch.zeros((ll.shape[0])).to(device)
             if exclude_class:
-                cl_labels = cl_labels.reshape(B, n_disease)  # B x N_disease
-                cl_labels = cl_labels[:, self.keep_class_dim]  # B x N_important_disease
+                cl_labels = cl_labels.reshape(B, n_disease)
+                cl_labels = cl_labels[:, self.keep_class_dim]
                 cl_labels = cl_labels.reshape(-1)
                 ll = ll.reshape(B, n_disease, -1)
                 ll = ll[:, self.keep_class_dim, :]
-                ll = ll.reshape(B * (len(self.keep_class_dim)), -1)  # [BxN_important disease, 1]
+                ll = ll.reshape(B * (len(self.keep_class_dim)), -1)
 
-        ## Output 3: Predict disease presence
         if self.bottneck:
             out = self.bottleneck(out)
         out = out.permute(0, 2, 1)
         out = out.contiguous().view(B, len(self.disease_name), -1)
-        x = self.classifier(out)  # B x N_disease x 2
+        x = self.classifier(out)
 
         if exclude_class == True:
             labels = labels[:, self.keep_class_dim]
             x = x[:, self.keep_class_dim, :]
 
         logits = torch.matmul(F.normalize(x_global, dim=-1),
-                              F.normalize(query_embed_, dim=-1).T)  # B x N_disease*n_concepts
+                              F.normalize(query_embed_, dim=-1).T)
 
-        ## None mask version
         contrast_labels = labels.clone()
         contrast_labels[(contrast_labels == -1) | (contrast_labels == 2)] = 0
         loss_global_i2t = torch.stack([
@@ -366,30 +295,24 @@ class MAVL(nn.Module):
         loss_global = self.cl_global * (loss_global_i2t + loss_global_t2i)
         labels = labels.reshape(-1, 1)
         logits = x.reshape(-1, x.shape[-1])
-        Mask = ((labels != -1) & (
-                    labels != 2)).squeeze()  ## Ignore if disease is unknown, only predict 0 (absent) or 1 (present)
+        Mask = ((labels != -1) & (labels != 2)).squeeze()
 
-        cl_mask = (labels == 1).squeeze()  # B, 75
+        cl_mask = (labels == 1).squeeze()
 
         if is_train:
             labels = labels[Mask].long()
             logits = logits[Mask]
-            # CE loss for strong/weak disease presence prediction
             loss_ce = self.ce * F.cross_entropy(logits, labels[:, 0])
 
             if no_cl == False:
-                # Contrastive loss for location prediction
                 cl_labels = cl_labels[cl_mask].long()
                 ll = ll[cl_mask]
                 loss_cl = F.cross_entropy(ll, cl_labels)
             else:
                 loss_cl = torch.tensor(0).to(device)
+
         loss = loss_ce + loss_cl + loss_global
-        # if is_train and self.use_freq_mask:
-        # 掩码率越高，说明特征越难提取，让模型更加关注全局的图像-文本特征对齐(loss_global)
-        # 掩码率越低，图像越完整，让模型有余力去做精细的位置定位学习(loss_cl)
-        #    adaptive_weight = current_mask_ratio
-        #    loss = loss_ce + (1.0 - adaptive_weight) * loss_cl + (1.0 + adaptive_weight) * loss_global
+
         if is_train:
             return loss, loss_ce, loss_cl, loss_global
         else:
@@ -397,19 +320,18 @@ class MAVL(nn.Module):
 
     @staticmethod
     def _init_weights(module):
-        r"""Initialize weights like BERT - N(0.0, 0.02), bias = 0."""
-
         if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=0.02)
-
         elif isinstance(module, nn.MultiheadAttention):
             module.in_proj_weight.data.normal_(mean=0.0, std=0.02)
             module.out_proj.weight.data.normal_(mean=0.0, std=0.02)
-
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=0.02)
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
+
+
+
 
 
 if __name__ == '__main__':

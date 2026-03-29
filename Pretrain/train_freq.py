@@ -20,7 +20,6 @@ parent_directory = os.path.dirname(current_directory)
 # Add the parent directory to PYTHONPATH
 sys.path.append(parent_directory)
 
-
 import wandb
 import torch
 import torch.nn as nn
@@ -33,20 +32,22 @@ import utils
 from scheduler import create_scheduler
 from optim import create_optimizer
 from dataset.dataset import VL_Dataset
-from models.model_MAVL import MAVL
+from models.model_freq import MAVL
 from models.tokenization_bert import BertTokenizer
 from accelerate import Accelerator
 
 global accelerator
 
 
-def get_tokenizer(tokenizer,target_text):
-    
-    target_tokenizer = tokenizer(list(target_text), padding='max_length', truncation=True, max_length=128,return_tensors="pt")
-    
+def get_tokenizer(tokenizer, target_text):
+    target_tokenizer = tokenizer(list(target_text), padding='max_length', truncation=True, max_length=128,
+                                 return_tensors="pt")
+
     return target_tokenizer
 
-def train(model, data_loader, optimizer, epoch, warmup_steps, device, scheduler, args, config, writer, accelerator, metric_logger):
+
+def train(model, data_loader, optimizer, epoch, warmup_steps, device, scheduler, args, config, writer, accelerator,
+          metric_logger):
     model.train()
     # 打印当前使用的设备索引
     print(f"######### Current Device Index: {torch.cuda.current_device()} ############")
@@ -66,7 +67,7 @@ def train(model, data_loader, optimizer, epoch, warmup_steps, device, scheduler,
         optimizer.zero_grad()
 
         loss, loss_ce, loss_cl, loss_cl_global = model(images, labels, index, is_train=True, no_cl=config['no_cl'],
-                                                exclude_class=config['exclude_class'])
+                                                       exclude_class=config['exclude_class'])
         accelerator.backward(loss)
         optimizer.step()
         if accelerator.is_local_main_process:
@@ -105,9 +106,9 @@ def valid(model, data_loader, epoch, device, config, writer, metric_logger):
 
         with torch.no_grad():
 
-            #if config['model'] == 'medslip_global':
-            loss, loss_ce, loss_cl, loss_cl_global  = model(images, labels, index, is_train=True, no_cl=config['no_cl'],
-                                                    exclude_class=config['exclude_class'])
+            # if config['model'] == 'medslip_global':
+            loss, loss_ce, loss_cl, loss_cl_global = model(images, labels, index, is_train=True, no_cl=config['no_cl'],
+                                                           exclude_class=config['exclude_class'])
             # elif config['model'] == 'medslip_combine':
             #     loss, loss_ce, loss_cl, loss_reg, loss_att_disc, loss_att_bias, loss_cl_concepts, loss_cl_global, loss_combine = model(images, labels, index, is_train=True, no_cl=config['no_cl'],
             #                                      exclude_class=config['exclude_class'])
@@ -125,7 +126,7 @@ def valid(model, data_loader, epoch, device, config, writer, metric_logger):
         metric_logger.update(val_loss_cl=loss_cl.item())
         metric_logger.update(val_loss_cl_global=loss_cl_global.item())
     avg_val_loss = np.array(val_loss).mean()
-    metric_logger.update(avg_val_loss = avg_val_loss)
+    metric_logger.update(avg_val_loss=avg_val_loss)
     metric_logger._add_to_wandb(mode='val')
     return avg_val_loss
 
@@ -144,9 +145,10 @@ def main(args, config):
     warmup_steps = config['schedular']['warmup_epochs']
 
     dataset_cls = VL_Dataset
-    #### Dataset #### 
+    #### Dataset ####
     print("Creating dataset")
-    train_datasets = dataset_cls([config['train_file'], config['valid_file'], config['test_file']], config['label_file'], mode='train', root=args.root)
+    train_datasets = dataset_cls([config['train_file'], config['valid_file'], config['test_file']],
+                                 config['label_file'], mode='train', root=args.root)
     train_dataloader = DataLoader(
         train_datasets,
         batch_size=config['batch_size'],
@@ -175,7 +177,7 @@ def main(args, config):
     disease_book = [json_book[i] for i in json_book]
 
     concepts = json.load(open(config['concept_book'], 'r'))
-    
+
     select_concepts = config.get('select_concepts', None)
     if select_concepts is None:
         concepts_book = sum(concepts.values(), [])
@@ -207,7 +209,7 @@ def main(args, config):
     print("Creating model")
     model = MAVL(config, ana_book_tokenizer, disease_book_tokenizer, concepts_book_tokenizer, mode='train')
     # model = nn.DataParallel(model, device_ids = [i for i in range(torch.cuda.device_count())])
-    # model = model.to(device)  
+    # model = model.to(device)
 
     arg_opt = utils.AttrDict(config['optimizer'])
     optimizer = create_optimizer(arg_opt, model)
@@ -221,7 +223,7 @@ def main(args, config):
     if args.checkpoint:
         checkpoint = torch.load(args.checkpoint, map_location='cpu')
         state_dict = checkpoint['model']
-        #state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        # state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 
         optimizer.load_state_dict(checkpoint['optimizer'])
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
@@ -236,7 +238,6 @@ def main(args, config):
     metric_logger.add_meter('loss_cl', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
     metric_logger.add_meter('loss_cl_global', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
 
-    
     print("Start training")
     start_time = time.time()
     if accelerator.is_local_main_process:
@@ -296,10 +297,10 @@ def main(args, config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='/home/supermicro/zyl/MAVL/Pretrain/configs/MAVL_resnet.yaml')
+    parser.add_argument('--config', default='/home/supermicro/zyl/MAVL/Pretrain/configs/FREQ_resnet.yaml')
     parser.add_argument('--root', default='/home/supermicro/data/mimic_cxr/images')
     parser.add_argument('--checkpoint', default='')
-    parser.add_argument('--output_dir', default='output_fulldata_layer1_hl_mask')
+    parser.add_argument('--output_dir', default='output_fulldata_dynamic_mask')
     parser.add_argument('--device', default='cuda:1')
     # parser.add_argument('--gpu', type=str,default='1', help='gpu')
     parser.add_argument('--bs', type=int, default=128)
